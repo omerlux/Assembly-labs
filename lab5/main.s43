@@ -1,0 +1,108 @@
+#include  <msp430xG46x.h>
+;-------------------------------------------------------------------------------          
+           NAME    Main
+           PUBLIC  Main
+           EXTERN  Leds, ConfigPB, ConfigP1,ConfigP2_2,ConfigP2_3,ClearAll,setP1IN
+;-------------------------------------------------------------------------------
+Debounce     MACRO  cycles
+             LOCAL  L
+             mov.w  cycles,R15     
+L            dec.w  R15                     
+             jnz    L
+             ENDM
+;-------------------------------------------------------------------------------
+            ORG     0x1100                  ; Begins a RAM segment
+            
+state       DW      0
+swVal       DW      0                       ; changed with R8
+;-------------------------------------------------------------------------------
+            RSEG    CSTACK                  ; Define stack segment
+;-------------------------------------------------------------------------------
+            RSEG    CODE                    ; Assemble to Flash memory
+;-----------------------------------------------------------------------------
+Main        mov.w   #SFE(CSTACK),SP         ; Initialize stackpointer
+StopWDT     mov.w   #WDTPW+WDTHOLD,&WDTCTL  ; Stop WDT
+SetupFLL    bis.b   #XCAP14PF,&FLL_CTL0     ; Configure load caps
+            
+            call    #ConfigPB
+            call    #ConfigP1
+;-------FSM LOOP--------------------------------------------------------------            
+            call    #ConfigP2_3
+            clr     R7      ;flag
+            clr     R8      ;t1
+            mov.w   #TBSSEL_2+CNTL_0+MC_2,&TBCTL       ; SMCLK, 16bit, up mode
+            mov.w   #CM_2+SCS+CAP+CCIE,&TBCCTL2        ; Capture on falling edges for MAATEFET 2
+            mov.w   #LPM0+GIE,SR
+            nop                                             ; Required for only for Debugger              
+
+;------------------------------------------------------------------------------
+TimerB_ISR;  // Timer_B Interrupt Service Routine
+;------------------------------------------------------------------------------
+            add.w   &TBIV,PC                ; Add Timer_B offset vector
+            reti                            ; Vector 0 - no interrupt
+            reti                            ; Vector 1 - TBCCR1
+            jmp     record                  ; Vector 2 - TBCCR2
+            reti                            ; Vector 3 - CCR3
+            reti                            ; Vector 4 - CCR4
+            reti                            ; Vector 5 - CCR5
+            reti                            ; Vector 6 - CCR6
+TB_over     jmp     Option1                 ; Vector 7 - Liba overflow (Toggle P9.1)
+
+record      cmp     #0, R7 
+            jnz     continue
+            mov.w   #0x0000,&TBR
+            mov     #1,R7
+continue    mov     &TBCCR2,R8
+            mov     R8,&PBOUT
+            reti
+            
+Option1     call    #Leds                   ; moving the value to the leds  
+            reti                            ; Return from overflow ISR		
+            
+;-----------------------------------------------------------------------------
+TB0_ISR;    Toggle P9.1
+;-----------------------------------------------------------------------------
+            mov     R7,&PBOUT               ;"printing" freq at leds
+            clr     R7
+            reti
+;------------------------------------------------------------------------------
+/*PORT1_ISR;  // Port1 Interrupt Service Routine
+;------------------------------------------------------------------------------
+            Debounce #280
+            call    #ClearAll
+            bit.b   #128,&P1IFG             ;1xxx 0000
+            jnz     P1_3
+            bit.b   #16,&P1IFG              ;0xx1 0000
+            jnz     P1_0
+            bit.b   #32,&P1IFG              ;0x10 0000
+            jnz     P1_1
+            bit.b   #64,&P1IFG              ;0100 0000
+            jnz     P1_2
+            reti
+            
+P1_0        mov     #1,state
+            jmp     exitLMP3
+P1_1        mov     #2,state
+            jmp     exitLMP3
+P1_2        mov     #3,state
+            jmp     exitLMP3
+P1_3        mov     #0,state
+            
+exitLMP3    bic     #LPM3,0(SP)   ;exit LPM3
+            bic.b   #0xf0,&P1IFG
+            reti*/
+            
+;------------------------------------------------------------------------------
+            COMMON  INTVEC                  ; Interrupt Vectors
+;------------------------------------------------------------------------------
+            ORG     RESET_VECTOR            ; MSP430 RESET Vector
+            DW      Main                    ;
+            ORG     TIMERB1_VECTOR          ; MSP430 TIMERB1 Interrupt Vector
+            DW      TimerB_ISR    
+            ORG     TIMERB0_VECTOR          ; Timer_B0 Vector
+            DW      TB0_ISR   
+            ;ORG     PORT1_VECTOR            ; MSP430 PORT1 Vector
+           ; DW      PORT1_ISR
+            END
+            
+ 

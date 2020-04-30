@@ -1,0 +1,150 @@
+#include  <msp430xG46x.h>
+;------------------------------------------------------------------------------------------ 
+                MODULE    Ports
+                PUBLIC    ClearR14,ConfigPB,ConfigP2,ClearOutput,P1_0F,P2_1F,P2_2F,ConfigP1
+                EXTERN    Wait100us, Wait05s
+                
+                RSEG      CODE
+
+ClearR14        mov     #0x0000,R14
+                ret
+
+ConfigPB        bic     #0xffff,&PBSEL ;set I\O state for port 
+                bis     #0xffff,&PBDIR ;set pins to output state
+                clr     &PBOUT
+                ret
+                
+ConfigP2        bic.b   #0x0f,&P2SEL   ;set I\O state for port
+                bic.b   #0x0f,&P2DIR
+                mov.b   #0x03,&P2IES
+                bis.b   #0x0f,&P2IE
+                bic.b   #0x0f,&P2IFG   ;reset of interrupt flag to 0 - no rutine happens
+                ret
+                
+ConfigP1        bic.b   #1,&P1SEL      ;set I\O state for port
+                bic.b   #1,&P1DIR
+                mov.b   #1,&P1IES
+                bis.b   #1,&P1IE
+                bic.b   #1,&P1IFG   ;reset of interrupt flag to 0 - no rutine happens
+                ret
+                
+ClearOutput     clr     &PBOUT
+                ret
+
+;------------------------------------------------------------------------------------------ 
+;               PORT1 ISR - P1
+;------------------------------------------------------------------------------------------
+                
+P1_0F           cmp    #0xFFFF,R14
+                jnz    Continue2_0
+                clr    R14
+Continue2_0     mov    R14,&PBOUT
+                call   #CountingLeds
+                mov    &PBOUT,R14
+                ret
+
+;------------------------------------------------------------------------------------------ 
+;               PORT2 ISR - P2
+;------------------------------------------------------------------------------------------
+
+P2_1F           call   #Multi
+                ret
+                
+P2_2F           call   #Accumulate
+                ret
+                
+;------------------------------------------------------------------------------------------ 
+;               PORT1 ISR - P1.0
+;------------------------------------------------------------------------------------------ 
+
+CountingLeds    mov    #0x14,R7        ;10 seconds counting
+
+Loop1           ;bit.b  #0x08,&P2IFG             ;~~~~SLEEP TIME!~~~~
+                ;jnz    off2_0                   ;~~~~SLEEP TIME!~~~~
+                
+                call   #Wait05s        ;delay time
+                cmp    #0xFFFF,&PBOUT
+                jnz    ContinueLoop    ;clear PBOUT if its FFFF
+                mov    #0x0000,&PBOUT
+                jmp    Loop1           ; and wait again
+ContinueLoop    inc    &PBOUT          ; add+1 PBOUT
+                dec    R7              ;-1 time
+                cmp    #0x00,R7        ; if its 0 times, end
+                jnz    Loop1
+off2_0          ret
+                
+;------------------------------------------------------------------------------------------ 
+;               PORT2 ISR - P2.1
+;------------------------------------------------------------------------------------------ 
+
+Multi           mov     #0x0050,R5     ;R6=16*5 rounds
+NewRound        mov     #0x01,&PBOUT   
+
+MultiLoop       bit.b   #0x08,&P2IFG             ;~~~~SLEEP TIME!~~~~
+                jnz     off2_1                   ;~~~~SLEEP TIME!~~~~
+
+                call    #Wait05s
+                dec     R5
+                cmp     #0x0,R5        ; time to end loop
+                jz      off2_1         ;
+                cmp     #0x8000,&PBOUT ; 1000 0....0 last led
+                jeq     NewRound       ;
+                
+                rla     &PBOUT
+                jmp     MultiLoop 
+                
+off2_1          ret
+
+;------------------------------------------------------------------------------------------ 
+;               PORT2 ISR - P2.2
+;------------------------------------------------------------------------------------------ 
+
+Accumulate      mov     #0x0050,R6     ;R6=16*5 rounds
+NewAccum        mov     #0x01,R5
+
+AccumLoop       bit.b  #0x08,&P2IFG             ;~~~~SLEEP TIME!~~~~
+                jnz    off2_2                   ;~~~~SLEEP TIME!~~~~
+
+                mov     R5,&PBOUT
+                dec     R6
+                
+                call    #Wait05s
+                
+                cmp     #0x0,R6        ; time to end loop
+                jz      off2_2         ;
+                cmp     #0xFFFF,R5     ;1111 1....1 last led
+                jeq     NewAccum
+                
+                rla     R5
+                add     #0x1,R5
+                jmp     AccumLoop
+                
+off2_2          ret
+
+;------------------------------------------------------------------------------------------ 
+                ENDMOD 
+;------------------------------------------------------------------------------------------ 
+                MODULE  Delay
+                PUBLIC  Wait100us, Wait05s
+                RSEG    CODE
+            
+Wait100us       mov.w   #33,R15              
+L1              dec.w   R15                     
+                jnz     L1                                    
+                ret
+            
+Wait05s         mov.w   #4727,R13              
+L2              call    #Wait100us
+                dec.w   R13                     
+                jnz     L2                                    
+                ret
+                
+Delay05msec     mov.w   #5,R13              
+L3              call    #Wait100us
+                dec.w   R13                     
+                jnz     L3                                    
+                ret  
+                
+                ENDMOD
+//=============================================================            
+                END

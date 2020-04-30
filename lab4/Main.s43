@@ -1,0 +1,83 @@
+#include  <msp430xG46x.h>
+;-------------------------------------------------------------------------------          
+           NAME    Main
+           PUBLIC  Main
+           EXTERN  ClearR14,ConfigPB,ConfigP2,ClearOutput,P1_0F,P2_1F,P2_2F,ConfigP1
+           EXTERN  Wait100us, Wait05s
+;------------------------------------------------------------------------------- 
+Debounce   MACRO  cycles
+           LOCAL  L
+           mov.w  cycles,R15     
+L          dec.w  R15                     
+           jnz    L
+           ENDM
+;------------------------------------------------------------------------------- 
+           ORG     0x1100                  ; Begins a RAM segment
+state      DB      0       
+;------------------------------------------------------------------------------- 
+           RSEG    CSTACK                  
+           RSEG    CODE                    
+Main       mov.w   #SFE(CSTACK),SP          
+StopWDT    mov.w   #WDTPW+WDTHOLD,&WDTCTL 
+;*******************************************************************************
+           call    #ClearR14
+           call    #ConfigPB
+           call    #ConfigP2
+           call    #ConfigP1
+           call    #Wait05s
+           bis.w   #CPUOFF+GIE,SR          ;LMP0 = go to sleep and wake up when interrupt occure
+           nop                             ;for simulation only
+
+;------------------------------------------------------------------------------------------ 
+;               PORT1 ISR - P1.0
+;------------------------------------------------------------------------------------------
+PORT1_ISR  bic.w   #GIE,SR
+           Debounce #280
+           ;bit.b   #0x01,state    ;check if P2.0 is pushed
+           ;jz      fin 
+           call    #P1_0F         ;counting
+           bic.b   #1,&P1IFG
+           bis.w   #GIE,SR
+           bis.b   #0xFF,&P2IE
+           call    #ConfigPB
+           reti
+
+;------------------------------------------------------------------------------------------ 
+;               PORT2 ISR - P2.1-3
+;------------------------------------------------------------------------------------------
+  
+PORT2_ISR  bis.w  #GIE,SR          ;GIE=ON AND P2IE=OFF
+           bic.b  #0xFF,&P2IE
+           
+           Debounce #280           ;~~~~~~wait of 0.8msec = (3op*280)/2^20  
+           mov.b   &P2IFG,state    ;saving the flag (which button pushed)
+           bic.b   #0x0f,&P2IFG    ;reset interrupt flags
+                      
+           bit.b   #0x08,state     ;check if P2.4 is pushed
+           jnz     finish
+           
+P2_1       bit.b   #0x02,state    ;check if P2.1 is pushed
+           jz      P2_2
+           call    #P2_1F
+           bic.b   #0x02,&P2IFG
+           
+P2_2       bit.b   #0x04,state    ;check if P2.2 is pushed
+           jz      finish 
+           call    #P2_2F
+           bic.b   #0x04,&P2IFG
+                                        ;~~~~Adding reset to flags - 2 flags = 1 by 1 functions
+finish     bic.b   #0x08,&P2IFG     ;flag of sleep = 0
+           
+           call    #ClearOutput
+           bis.b   #0xFF,&P2IE
+           reti
+;*******************************************************************************
+           COMMON  INTVEC  ;Interrupt Vectors-Begins a common segment INTVEC 
+;*******************************************************************************
+           ORG     PORT2_VECTOR           ;PORT2 Interrupt Vector Address 0xFFE2
+           DW      PORT2_ISR
+           ORG     PORT1_VECTOR           ;PORT1 Interrupt Vector Address 0xFFE2
+           DW      PORT1_ISR
+           ORG     RESET_VECTOR           ; MSP430 RESET Vector
+           DW      Main                   
+           END     

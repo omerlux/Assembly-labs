@@ -1,0 +1,60 @@
+#include  <msp430xG46x.h>
+;------------------------------------------------------------------------------------------ 
+                MODULE    Ports
+                PUBLIC    ConfigPB,ConfigP1,ConfigP2_2,ConfigP2_3,Leds,ClearAll,setP1IN
+               
+;-------------------------------------------------------------------------------
+                RSEG      CODE
+
+ConfigPB        bic     #0xffff,&PBSEL ;set I\O state for port 
+                bis     #0xffff,&PBDIR ;set pins to output state
+                clr     &PBOUT
+                ret
+                
+ConfigP1        bic.b   #0xff,&P1SEL
+                bic.b   #0xff,&P1DIR
+                mov.b   #0x20,&P1IES
+                bis.b   #0xf0,&P1IE     ;check if switch need IE
+                ret
+                
+ConfigP2_2      bis.b   #4,&P2SEL       ;config p2.2 to compare mode 
+                bis.b   #4,&P2DIR
+                ret              
+                
+ConfigP2_3      bis.b   #8,&P2SEL       ;config p2.2 to capture mode 
+                bic.b   #8,&P2DIR
+                ret                
+
+setP1INbackup   bic     #0xfff0,R8
+                rla     R8
+                rla     R8            
+                rla     R8             ;x8
+                ret
+                
+setP1IN        bic     #0xfff0,R8     ;(x,x,x,x)
+                clr     R5
+                mov     #69,R6         ;1049/15 = 69.9 
+loop            add     R8,R5
+                dec     R6      
+                jnz     loop
+                mov     R5,R8         
+                ret
+                
+ClearAll        mov     #TBCLR+CM_0,&TBCTL           ;TBCLR: MC=00(STOP) ID=00(Divide by 1) and CLR TBR
+                clr     &PBOUT
+                clr     R7
+                bic.w   #CCIE, &TBCCTL0
+                bic.w   #CCIE, &TBCCTL1
+
+Leds            cmp     #0x0,&PBOUT
+                jz      first
+                bit     #0x8000,&PBOUT
+                jz      ConOp1
+first           mov     #0x0001,&PBOUT
+                ret
+ConOp1          rla     &PBOUT
+                ret
+         
+         ENDMOD
+//=============================================================            
+               END
